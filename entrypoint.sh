@@ -12,9 +12,9 @@ django.setup()
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-email = os.environ.get('DJANGO_ADMIN_EMAIL', 'admin@example.com')
-username = os.environ.get('DJANGO_ADMIN_USERNAME', 'admin')
-password = os.environ.get('DJANGO_ADMIN_PASSWORD', 'ChangeMe123!')
+email = os.environ.get('DJANGO_ADMIN_EMAIL')
+username = os.environ.get('DJANGO_ADMIN_USERNAME')
+password = os.environ.get('DJANGO_ADMIN_PASSWORD')
 
 u, created = User.objects.get_or_create(
     email=email,
