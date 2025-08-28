@@ -13,42 +13,46 @@ export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-conduit.settings}"
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput || true
 
-# Create admin only if missing (no password overwrite)
-python - <<'PY'
-import os, django
-django.setup()
+# admin bootstrap via Django shell -c (no password overwrite if exists)
+if [ -n "${DJANGO_ADMIN_EMAIL}" ]; then
+  python manage.py shell -c "
+import os
 from django.contrib.auth import get_user_model
-User = get_user_model()
+U = get_user_model()
+e = os.environ.get('DJANGO_ADMIN_EMAIL')
+u = os.environ.get('DJANGO_ADMIN_USERNAME') or 'admin'
+p = os.environ.get('DJANGO_ADMIN_PASSWORD')
 
-email = os.environ.get('DJANGO_ADMIN_EMAIL')
-username = os.environ.get('DJANGO_ADMIN_USERNAME') or 'admin'
-password = os.environ.get('DJANGO_ADMIN_PASSWORD')
+if not e:
+    print('admin bootstrap skipped: no email'); raise SystemExit(0)
 
-if email:
-    try:
-        u = User.objects.get(email=email)
-        changed = False
-        if not u.is_staff: u.is_staff=True; changed=True
-        if not u.is_superuser: u.is_superuser=True; changed=True
-        if changed: u.save(); print("admin user:", email, "| exists, flags updated")
-        else: print("admin user:", email, "| exists, unchanged")
-    except User.DoesNotExist:
-        u = User(email=email)
-        if hasattr(u,'username'): u.username = username
-        if password: u.set_password(password)
-        u.is_staff = True; u.is_superuser = True; u.save()
-        print("admin user:", email, "| created")
-else:
-    print("admin bootstrap skipped: DJANGO_ADMIN_EMAIL not set")
-PY
+try:
+    obj = U.objects.get(email=e)
+    changed = False
+    if not obj.is_staff: obj.is_staff = True; changed = True
+    if not obj.is_superuser: obj.is_superuser = True; changed = True
+    if changed: obj.save(); print('admin user:', e, '| exists, flags updated')
+    else: print('admin user:', e, '| exists, unchanged')
+except U.DoesNotExist:
+    obj = U(email=e)
+    if hasattr(obj, 'username'): obj.username = u
+    if p: obj.set_password(p)
+    obj.is_active = True
+    obj.is_staff = True
+    obj.is_superuser = True
+    obj.save()
+    print('admin user:', e, '| created')
+"
+else
+  echo "admin bootstrap skipped: DJANGO_ADMIN_EMAIL not set"
+fi
 
-# Auto workers = 2*CPU + 1 (fallback 3)
-WORKERS="$(python - <<'PY'
-import multiprocessing as m
-try: print(m.cpu_count()*2+1)
-except: print(3)
-PY
-)"
+# start Gunicorn with SQLite-safe concurrency
+WORKERS=1
+THREADS=4    
 
-# Start Gunicorn (production WSGI)
-exec gunicorn conduit.wsgi:application --bind 0.0.0.0:8000 --workers "${WORKERS}"
+exec gunicorn conduit.wsgi:application \
+  --bind 0.0.0.0:8000 \
+  --workers "$WORKERS" \
+  --threads "$THREADS" \
+  --timeout 120
